@@ -16,6 +16,9 @@
 2. 🏛️ **[아키텍처 심층 기술 백서 (`docs/ARCHITECTURE_DEEP_DIVE_KO.md`)](docs/ARCHITECTURE_DEEP_DIVE_KO.md)**
    - **Root Agent → 3 BQ CAA Sub-Agents 라우팅 로직 (`transfer_to_agent`, `TransferToAgentTool` Enum 제약, Peer-to-Peer 전환, `run_cross_domain_caa_analysis` 병렬 Fan-out)**
    - **ADK 표준 `Session Object` (`temp:`, `session`, `user:`, `app:` 4-Scope State) + `Memory Object` (`add_session_to_memory`, `preload_memory`, `load_memory`, `.adk/long_term_memory_bank.json`) 설계 원리**
+3. 🔍 **[코드 워크스루 & Session/Memory API 레퍼런스 (`docs/CODE_WALKTHROUGH_ROOT_AGENT_AND_SESSION_KO.md`)](docs/CODE_WALKTHROUGH_ROOT_AGENT_AND_SESSION_KO.md)**
+   - **리포지토리 내 `.py` 파일별 역할 구분 및 `bq_caa_3domain_multi_agent/agent.py` 라인별 코드 맵 (`root_agent`, 3개 도메인 Sub-Agent, 병렬 분석 Tool)**
+   - **Session 및 Memory 제어를 위해 호출하는 Google ADK 표준 라이브러리(`CallbackContext`, `ToolContext`, `Event`, `preload_memory`, `load_memory`) 및 5대 내부 함수 상세 분석**
 
 ---
 
@@ -63,8 +66,9 @@ flowchart LR
 .
 ├── README.md                                  # 리포지토리 개요 및 Quickstart 가이드
 ├── docs/
-│   ├── QWIKLABS_HANDSON_LAB_GUIDE_KO.md       # [필독] Qwiklabs 형식 단계별 핸즈온 실습 가이드 (Task 1~5)
-│   └── ARCHITECTURE_DEEP_DIVE_KO.md           # 라우팅 로직 및 Session/Memory 아키텍처 심층 해설서
+│   ├── QWIKLABS_HANDSON_LAB_GUIDE_KO.md            # [필독] Qwiklabs 형식 단계별 핸즈온 실습 가이드 (Task 1~5)
+│   ├── ARCHITECTURE_DEEP_DIVE_KO.md                # 라우팅 로직 및 Session/Memory 아키텍처 심층 해설서
+│   └── CODE_WALKTHROUGH_ROOT_AGENT_AND_SESSION_KO.md # Root Agent 구성 .py 코드 맵 & Session/Memory API 레퍼런스
 ├── scripts/
 │   ├── 00_configure_customer_env.sh           # 고객 정보(PROJECT_ID, DATASET_ID, REGION) 대화형 설정 마법사
 │   ├── 01_prepare_bigquery_data.py            # 퍼블릭 데이터 복제(15초 CTAS) + 3대 도메인 데모 데이터 시딩
