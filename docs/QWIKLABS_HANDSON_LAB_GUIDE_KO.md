@@ -1,0 +1,302 @@
+# [Qwiklabs Hands-on Lab] BigQuery Conversational Analytics (CAA) & Google ADK 멀티 에이전트 구축 실습 가이드
+**(Domain-Scoped 3-SubAgent Routing + ADK Standard `Session Object` & `Memory Object` Architecture)**
+
+---
+
+| 실습 항목 | 상세 정보 |
+| :--- | :--- |
+| **예상 소요 시간** | 약 45 ~ 60분 |
+| **난이도** | 중급 ~ 고급 (Intermediate / Enterprise Architect) |
+| **기본 데이터셋** | `<CUSTOMER_PROJECT_ID>.thelook_ecommerce_agent` (리전 기본값: `US`, `bigquery-public-data.thelook_ecommerce` 복제 + 3대 도메인 시나리오 데이터 증강) |
+| **핵심 기술 스택** | Google ADK (`google-adk`), BigQuery Conversational Analytics API (`geminidataanalytics.googleapis.com/v1`), Vertex AI (`gemini-2.5-flash`), Terraform |
+
+---
+
+## Overview (실습 개요)
+
+엔터프라이즈 환경에서 자연어 기반 SQL 분석(NL2SQL) 에이전트를 구축할 때 가장 흔히 겪는 **3가지 실무 문제**는 다음과 같습니다:
+
+1. **단일 거대 에이전트의 토큰 비용 폭증 및 오조인(Mis-Join) 문제**:
+   - 수십 개의 테이블과 모든 부서의 비즈니스 용어집(Glossary)을 단 하나의 BigQuery CAA 에이전트에 몰아넣으면, 매 질문마다 불필요한 스키마와 규칙이 프롬프트에 포함되어 입력 토큰이 급증하고 유사 컬럼(`users.created_at` vs `orders.created_at` vs `inventory_items.created_at`) 간 오조인이 발생합니다.
+2. **멀티턴 대화 맥락 단절 (Stateless Amnesia)**:
+   - 이전 질문에서 걸었던 조건(예: *"Women 부서 중에서"*)을 후속 질문(*"환불률이 가장 높은 브랜드는?"*)에서 잃어버리거나, 하위 CAA 엔진에 이전 대화 히스토리가 전달되지 않아 엉뚱한 SQL을 생성합니다.
+3. **세션 종료 후 사용자 역할·선호 KPI 초기화 (Lack of Long-Term Memory)**:
+   - 사용자가 새로운 채팅 세션(`+ New Session`)을 열 때마다 본인의 담당 부서, 직무 역할, 중점 관리 지표(KPI), 그리고 이전 세션에서 도출했던 핵심 인사이트를 처음부터 다시 설명해야 합니다.
+
+본 핸즈온 랩에서는 위 3가지 문제를 해결하는 **엔터프라이즈 표준 참조 아키텍처**를 고객의 GCP 프로젝트에 직접 구축하고 실습합니다:
+
+```mermaid
+flowchart TB
+  subgraph UserLayer["사용자 & ADK Web UI (http://127.0.0.1:8000/dev-ui/)"]
+    UI["ADK Dev UI<br/>(Chat / Event Graph / State / Trace)"]
+  end
+
+  subgraph ADKLayer["Google ADK Orchestration Layer (bq_caa_3domain_multi_agent)"]
+    ROOT["Root Agent: thelook_enterprise_root_router<br/>1) 단일 도메인: transfer_to_agent (Enum 제약)<br/>2) 복합 도메인: run_cross_domain_caa_analysis (병렬 실행)"]
+    
+    subgraph SessionMemory["ADK Session Object + Memory Object"]
+      S_OBJ["Session Object (4-Scope State)<br/>temp:* | session | user:* | app:*"]
+      M_OBJ["Memory Object (Long-Term Memory Bank)<br/>add_session_to_memory + preload/load_memory<br/>+ .adk/long_term_memory_bank.json"]
+    end
+
+    SUB1["Sub-Agent 1<br/>customer_marketing_subagent"]
+    SUB2["Sub-Agent 2<br/>product_profitability_subagent"]
+    SUB3["Sub-Agent 3<br/>supply_chain_logistics_subagent"]
+
+    ROOT --> SUB1
+    ROOT --> SUB2
+    ROOT --> SUB3
+    ROOT <--> SessionMemory
+    SUB1 <--> SessionMemory
+    SUB2 <--> SessionMemory
+    SUB3 <--> SessionMemory
+  end
+
+  subgraph CAALayer["BigQuery Conversational Analytics (GDA v1 API)"]
+    CAA1["BQ CAA #1: thelook_customer_marketing_ca<br/>Tables (4): users, events, orders, order_items"]
+    CAA2["BQ CAA #2: thelook_product_profitability_ca<br/>Tables (3): products, order_items, orders"]
+    CAA3["BQ CAA #3: thelook_supply_chain_ca<br/>Tables (5): distribution_centers, inventory_items,<br/>order_items, orders, products"]
+    SUB1 --> CAA1
+    SUB2 --> CAA2
+    SUB3 --> CAA3
+  end
+
+  subgraph BQLayer["Customer BigQuery Dataset (<PROJECT_ID>.thelook_ecommerce_agent)"]
+    BQ[("7 Core Tables + Seeded Golden Demo Data<br/>(Location: US)")]
+    CAA1 --> BQ
+    CAA2 --> BQ
+    CAA3 --> BQ
+  end
+
+  UI --> ROOT
+```
+
+### Objectives (학습 목표)
+이 랩을 완료하면 다음 작업을 수행하고 원리를 설명할 수 있습니다:
+- **Task 1**: 고객 GCP 프로젝트 정보 입력(`00_configure_customer_env.sh`) 및 Terraform/스크립트를 통한 BigQuery 환경 구성
+- **Task 2**: `bigquery-public-data.thelook_ecommerce` 원본 복제(`thelook_ecommerce_agent`) 및 3대 도메인 데모 시나리오용 골든 데이터 추가 원리 이해
+- **Task 3**: 단일 CAA 에이전트(Baseline vs Governed) 및 **3대 도메인 분리형 CAA 에이전트** 프로비저닝
+- **Task 4**: **Root Agent → 3 BQ CAA Sub-Agents 라우팅 로직**(`transfer_to_agent`, Peer-to-Peer 전환, 병렬 Fan-out) 실습 및 Event Graph 확인
+- **Task 5**: **ADK 표준 `Session Object`(4-Scope State) + `Memory Object`(장기 기억)** 아키텍처 동작 확인 및 교차 세션(`+ New Session`) 기억 복원 실습
+
+---
+
+## Setup & Requirements (사전 준비 사항)
+
+1. **필수 도구 확인**:
+   - Python `3.11` 이상
+   - Google Cloud SDK (`gcloud`) 설치 및 본인 계정 로그인
+   - (선택) Terraform `1.5.0` 이상 (Terraform 대신 Python 스크립트로도 100% 동일하게 구성 가능)
+2. **Google Cloud Keyless ADC (Application Default Credentials) 인증**:
+   사내 보안 정책상 `GOOGLE_API_KEY`(AI Studio 키)를 사용하지 않고, GCP IAM 기반의 **Keyless ADC 인증**을 사용합니다. 터미널에서 아래 명령어를 실행하여 로그인합니다:
+
+```bash
+gcloud auth login
+gcloud auth application-default login
+```
+
+---
+
+## Task 1. 고객 GCP 환경 변수 설정 및 인프라 구성 (5분)
+
+### 왜 이 단계가 필요한가요? (Why It Matters)
+모든 고객사마다 GCP 프로젝트 ID(`PROJECT_ID`), 데이터셋 이름(`BQ_DATASET_ID`), 리전 정책이 다릅니다. 본 리포지토리는 코드 내 하드코딩을 완전히 제거하고, 대화형 스크립트(`scripts/00_configure_customer_env.sh`)를 통해 입력받은 고객 정보를 **Terraform 변수 파일(`terraform/terraform.tfvars`)**과 **5개 ADK 에이전트의 `.env` 파일**에 일괄 주입합니다.
+
+### Step 1-1. 고객 환경 설정 마법사 실행
+리포지토리 루트 디렉토리에서 아래 명령어를 실행합니다:
+
+```bash
+chmod +x scripts/00_configure_customer_env.sh setup_mac_adk.sh run_adk_web.sh
+./scripts/00_configure_customer_env.sh
+```
+
+프롬프트가 나타나면 아래 기준에 맞춰 입력합니다 (Enter를 누르면 대괄호 안의 기본값이 적용됩니다):
+1. **GCP Project ID**: 본인의 테스트/고객 GCP 프로젝트 ID 입력 (예: `my-customer-poc-project`)
+2. **Target BigQuery Dataset Name**: 기본값 **`thelook_ecommerce_agent`** 권장 (Enter)
+3. **BigQuery Dataset Location**: 기본값 **`US`** 권장 (Enter)
+   - > 💡 **왜 기본 리전이 `US`인가요?**: 원본 퍼블릭 데이터셋(`bigquery-public-data.thelook_ecommerce`)이 `US` 멀티리전에 위치하므로, `US` 리전에 데이터셋을 생성하면 BigQuery 인-리전 `CREATE OR REPLACE TABLE ... AS SELECT` (CTAS) 쿼리로 **단 15초 만에 7개 테이블(약 335만 행) 복제가 완료**됩니다. (만약 `asia-northeast3` 등 타 리전을 입력하면 Terraform이 자동으로 BigQuery Data Transfer Service `cross_region_copy`를 구성합니다.)
+4. **Vertex AI Region**: 기본값 **`us-central1`** 권장 (Enter)
+
+```bash
+# 생성된 환경변수를 현재 셸에 로드하고 ADC Quota Project를 지정합니다.
+source customer_config.env
+gcloud auth application-default set-quota-project "$GOOGLE_CLOUD_PROJECT"
+```
+
+---
+
+## Task 2. `thelook_ecommerce_agent` 데이터셋 생성 및 데모 시나리오 데이터 추가 (5분)
+
+### 왜 데모 시나리오 데이터를 추가로 생성하나요? (How It Works & Why It Matters)
+`bigquery-public-data.thelook_ecommerce` 원본 테이블만 복제할 경우 두 가지 문제가 있습니다:
+1. **상대 시간 조건 쿼리 문제**: 사용자가 *"최근 30일 이내 가입한 신규 고객"*이나 *"지난 달 주문 이력이 있는 우수(VIP) 고객"*을 질문했을 때 `CURRENT_TIMESTAMP()` 기준으로 최신 데이터가 부족할 수 있습니다.
+2. **도메인별 이상징후(Anomaly) 시연 효과**: 고객 데모에서 강렬한 인사이트를 보여주려면 도메인별로 뚜렷한 패턴이 존재해야 합니다.
+
+따라서 `scripts/01_prepare_bigquery_data.py`는 다음 2단계를 순차 실행합니다:
+- **`sql/01_clone_public_thelook.sql`**: `bigquery-public-data.thelook_ecommerce`의 7개 테이블(`distribution_centers`, `events`, `inventory_items`, `order_items`, `orders`, `products`, `users`)을 `<PROJECT_ID>.thelook_ecommerce_agent`로 복제합니다.
+- **`sql/02_seed_demo_scenarios.sql`**: 복제된 테이블 위에 현재 시각(`CURRENT_TIMESTAMP()`) 기준의 **3대 도메인 골든 시나리오 데이터**를 멱등성 있게(Idempotent) 추가합니다:
+  - **[Domain 1 시드 데이터]**: 최근 30일 내 `Search` 및 `Email` 채널로 유입되어 $735 이상 구매한 **VIP 고객 60명** 및 `Display` 채널의 **장바구니 이탈 세션 120건**
+  - **[Domain 2 시드 데이터]**: `Women` 부서 `Outerwear & Coats` 카테고리의 **고마진율(56.4%) 캐시미어 트렌치코트 20종** 및 특정 브랜드(`TheLook Atelier`)의 **집중 반품(`Returned`)/취소(`Cancelled`) 주문 180건**
+  - **[Domain 3 시드 데이터]**: `Chicago IL`(DC #2) 물류센터의 **평균 6일 배송 지연 병목 데이터** 및 **미판매 재고(`sold_at IS NULL`) 220건**
+
+### Step 2-1. 데이터 준비 실행 (Python 스크립트 또는 Terraform 선택)
+
+**[방법 A — Python 스크립트로 즉시 실행 (권장, 약 25초 소요)]**:
+```bash
+python3 scripts/01_prepare_bigquery_data.py
+```
+
+**[방법 B — Terraform으로 API 활성화 + 데이터셋 + CAA 에이전트 일괄 배포]**:
+```bash
+cd terraform
+terraform init
+terraform apply -auto-approve
+cd ..
+```
+
+### 예상 출력 결과 (Expected Output)
+```text
+  ┌──────────────────────────┬──────────────┬───────────────────┐
+  │ Table Name               │ Total Rows   │ Seeded Demo Rows  │
+  ├──────────────────────────┼──────────────┼───────────────────┤
+  │ distribution_centers     │           10 │                 0 │
+  │ events                   │    2,426,192 │               120 │
+  │ inventory_items          │      490,861 │               400 │
+  │ order_items              │      181,776 │               180 │
+  │ orders                   │      125,270 │               180 │
+  │ products                 │       29,140 │                20 │
+  │ users                    │      100,060 │                60 │
+  └──────────────────────────┴──────────────┴───────────────────┘
+✅ Dataset `<PROJECT_ID>.thelook_ecommerce_agent` is ready for BigQuery CAA & ADK Multi-Agent Lab!
+```
+
+### ✅ Check My Progress (Task 1 & 2 자가 진단)
+```bash
+python3 scripts/03_verify_lab_progress.py --task 1
+python3 scripts/03_verify_lab_progress.py --task 2
+```
+
+---
+
+## Task 3. 도메인 분리형 BigQuery CAA 에이전트 프로비저닝 (5분)
+
+### 어떻게 동작하며 왜 필요한가요? (How It Works & Why It Matters)
+`provision_bq_caa_demo.py`는 Gemini Data Analytics API(`geminidataanalytics.googleapis.com/v1/projects/{project}/locations/global/dataAgents`)를 호출하여 총 **6개의 CAA Data Agent**를 생성(또는 업데이트)합니다:
+
+1. **거버넌스 전/후 비교용 단일 에이전트 (2종 + 호환 별칭 1종)**:
+   - `thelook_baseline_ca_agent`: 7개 테이블만 연결하고 비즈니스 용어집을 넣지 않은 순수 스키마 에이전트 (Before Governance)
+   - `thelook_governed_ca_agent`: 7개 테이블 + 10대 사내 표준 비즈니스 용어집(VIP 고객, 환불률, 마진율 등 SQL 수식)을 주입한 에이전트 (After Governance)
+2. **Root + 3 Sub-Agents 멀티 에이전트용 도메인 특화 에이전트 (3종)**:
+   - **`thelook_customer_marketing_ca`** (Sub-Agent 1 전담): `users`, `events`, `orders`, `order_items` **4개 테이블만 연결** + 고객/마케팅 용어집
+   - **`thelook_product_profitability_ca`** (Sub-Agent 2 전담): `products`, `order_items`, `orders` **3개 테이블만 연결** + 상품/수익성/반품 용어집
+   - **`thelook_supply_chain_ca`** (Sub-Agent 3 전담): `distribution_centers`, `inventory_items`, `order_items`, `orders`, `products` **5개 테이블만 연결** + 물류/재고/배송 용어집
+
+### Step 3-1. CAA 에이전트 프로비저닝 스크립트 실행
+(Task 2에서 Terraform `apply`를 실행했다면 이미 자동으로 실행되었습니다. 수동 실행 또는 업데이트 확인을 위해 아래 명령어를 실행합니다.)
+
+```bash
+python3 provision_bq_caa_demo.py
+```
+
+### ✅ Check My Progress (Task 3 자가 진단)
+```bash
+python3 scripts/03_verify_lab_progress.py --task 3
+```
+
+---
+
+## Task 4. Google ADK Web UI 구동 및 Root → 3 Sub-Agents 라우팅 실습 (15분)
+
+### Root Agent가 3개 BQ CAA Sub-Agent를 라우팅하는 원리 (Routing Deep Dive)
+[`bq_caa_3domain_multi_agent/agent.py`](../bq_caa_3domain_multi_agent/agent.py)의 루트 에이전트(`thelook_enterprise_root_router`)는 질문이 들어오면 다음 **3가지 라우팅 메커니즘**으로 동작합니다:
+
+1. **단일 도메인 질문 → ADK 내장 `transfer_to_agent` 위임**:
+   - ADK의 `_AgentTransferLlmRequestProcessor`가 3개 서브 에이전트의 `name`과 `description`을 프롬프트에 자동 주입하고, `TransferToAgentTool`이 JSON Schema `enum` 제약(`["customer_marketing_subagent", "product_profitability_subagent", "supply_chain_logistics_subagent"]`)을 걸어 환각 호출을 차단합니다.
+   - Root가 `transfer_to_agent`를 호출하면 **동일 턴 내에서 즉시 해당 Sub-Agent가 실행**되며, 각 Sub-Agent는 오직 자신의 도메인 CAA 도구(`ask_*_caa`)만 호출합니다.
+2. **후속 질문의 도메인 전환 → Sub-Agent 간 수평 이관 (`Peer-to-Peer Transfer`)**:
+   - Sub-Agent 1(고객/마케팅)과 대화하던 중 사용자가 갑자기 물류 질문을 하면, ADK의 `_get_transfer_targets()`가 열어준 형제 에이전트 경로를 통해 `customer_marketing_subagent` → `supply_chain_logistics_subagent`로 즉시 제어권이 이관됩니다.
+3. **복합 도메인 질문 → `run_cross_domain_caa_analysis` 병렬 Fan-out**:
+   - 한 질문에 2개 이상의 도메인이 포함된 경우 Root Agent가 질문을 도메인별 하위 쿼리로 분해한 뒤 `ThreadPoolExecutor`로 **3개 도메인 CAA API를 동시에 병렬 호출**하여 대기 시간을 단축하고 종합 리포트를 작성합니다.
+
+### Step 4-1. ADK 설치 및 Web UI 실행
+터미널에서 아래 원클릭 스크립트를 실행합니다 (Python 가상환경 `.venv` 생성, `google-adk` 설치, macOS/Linux SSL 인증서 번들 구성, `.env` 생성 후 `http://127.0.0.1:8000/dev-ui/`를 기동합니다):
+
+```bash
+./setup_mac_adk.sh "$GOOGLE_CLOUD_PROJECT" "$BQ_DATASET_ID"
+```
+
+브라우저에서 **[http://127.0.0.1:8000/dev-ui/](http://127.0.0.1:8000/dev-ui/)**를 열고 좌측 상단 에이전트 선택 드롭다운에서 **`bq_caa_3domain_multi_agent`**를 선택합니다.
+
+### Step 4-2. 단계별 라우팅 프롬프트 실습
+
+1. **[레지스트리 확인 — Root Agent 직접 응답]**:
+   ```text
+   현재 구성된 3개 서브 에이전트와 각 BQ CAA 에이전트의 담당 테이블 및 핵심 비즈니스 용어를 표로 보여줘
+   ```
+2. **[Domain 1 라우팅 — `customer_marketing_subagent`로 `transfer_to_agent`]**:
+   ```text
+   유입 경로(마케팅 채널)별로 VIP 고객 수와 장바구니 포기율을 분석해줘
+   ```
+   - 좌측 **Event Graph** 탭을 클릭해 보세요: `thelook_enterprise_root_router` → `customer_marketing_subagent` → `ask_customer_marketing_caa` 호출 흐름이 시각적으로 표시됩니다.
+3. **[Domain 2 수평 전환 — `customer_marketing_subagent` → `product_profitability_subagent`]**:
+   ```text
+   여성(Women) 의류 중에서 상품 마진율이 40% 이상인 제품들의 환불률(취소/반품 비율)을 브랜드별로 높은 순으로 상위 5개만 보여줘
+   ```
+   - 앞선 Task 2에서 시드한 고마진 트렌치코트 브랜드(`TheLook Atelier`, `Nordic Luxe`)의 반품 이상징후가 정확히 포착되는지 확인하세요.
+4. **[Domain 3 수평 전환 — `product_profitability_subagent` → `supply_chain_logistics_subagent`]**:
+   ```text
+   물류 센터(DC)별 평균 배송 소요 시간(일)과 미판매 재고 원가 총액을 비교해줘
+   ```
+5. **[복합 도메인 병렬 실행 — `run_cross_domain_caa_analysis`]**:
+   ```text
+   유입 경로별 VIP 고객 수, 상품 카테고리별 평균 마진율 상위 5개, 그리고 물류센터별 평균 배송 소요 시간을 한 번에 종합 분석해서 경영진 리포트로 정리해줘
+   ```
+
+---
+
+## Task 5. ADK 표준 `Session Object` + `Memory Object` (장기 기억) 실습 (15분)
+
+### 왜 ADK 표준 `Session Object` + `Memory Object` 아키텍처가 필요한가요?
+일반적인 에이전트는 대화가 길어지거나 새 세션(`+ New Session`)을 열면 이전 컨텍스트를 모두 잃어버립니다. 본 에이전트는 ADK의 **4단계 `Session.state` 스코프**와 **`MemoryService` + 로컬 영속 백업(`.adk/long_term_memory_bank.json`)**을 결합하여 다음을 보장합니다:
+
+| 구분 | 스코프 / 구성요소 | 보존 범위 (Lifecycle) | 저장 데이터 및 강화되는 기능 |
+| :--- | :--- | :--- | :--- |
+| **Session Object** | **`temp:*`** | 현재 턴(Invocation)만 유지 | `temp:last_caa_sql`, `temp:last_caa_rows` — 방대한 조회 결과 행이 다음 턴 프롬프트를 오염시키지 않도록 턴 종료 시 자동 소멸 |
+| | **`session` (무접두사)** | 현재 세션 내 모든 턴 유지 | `domain_query_history`, `domain_ca_multiturn_messages` — 동일 세션 내 후속 질문 시 대명사("그 중에서")를 해석하고 CAA `:chat` API에 직전 3턴 대화를 자동 체이닝 |
+| | **`user:*`** | **동일 사용자의 모든 세션 간 영속 유지** | `user:profile`(직무/관심부서/채널), `user:preferred_kpis`, `user:pinned_insights` — 새 세션을 열어도 사용자의 담당 부서와 중점 KPI가 시스템 프롬프트에 자동 주입됨 |
+| | **`app:*`** | 애플리케이션 전역 공유 | `app:total_caa_queries_executed` — 전체 누적 CAA 쿼리 실행 횟수 집계 |
+| **Memory Object** | **`after_agent_callback`** | 영구 보존 (세션 간 + 서버 재시작 후) | 매 턴 종료 시 `await callback_context.add_session_to_memory()`를 호출하여 `Session` 객체를 `MemoryService`에 인덱싱하고 `.adk/long_term_memory_bank.json`에 저장 |
+| | **`preload_memory` & `load_memory`** | 매 턴 프롬프트 생성 시 | 새 세션에서 질문할 때 과거 세션의 관련 분석 이력과 인사이트를 검색하여 `<PAST_CONVERSATIONS>` 블록으로 자동 주입 |
+
+### Step 5-1. [Session #1] 사용자 프로필/KPI 저장 및 핵심 인사이트 기억 실습
+현재 열린 세션에서 아래 프롬프트를 입력합니다:
+
+```text
+나는 MD 본부장이고 주로 Women 부서와 Search 채널을 담당해. 중점 관리 KPI는 상품 마진율, 환불률, VIP 고객이야. 그리고 'Women 부서 Outerwear & Coats 카테고리의 마진율이 50% 이상으로 가장 높지만 반품률 관리가 필요함'이라는 핵심 인사이트도 장기 기억에 함께 저장해줘.
+```
+
+- **확인 포인트**: `save_user_preference_and_memory` 도구가 실행됩니다. ADK Web UI 우측 상단의 **`State` 탭**을 클릭하면 `user:profile`, `user:preferred_kpis`, `user:pinned_insights`가 실시간으로 등록된 것을 눈으로 확인할 수 있습니다.
+
+### Step 5-2. [Session #2 — `+ New Session` 생성] 교차 세션 장기 기억 복원 검증
+1. ADK Web UI 우측 상단의 **`+ New Session`** 버튼을 클릭하여 **완전히 새로운 빈 세션**을 생성합니다.
+2. 새 세션에서 아무런 배경 설명 없이 아래와 같이 질문합니다:
+
+```text
+현재 내 세션 상태(4단계 State 스코프)와 장기 기억(Memory) 상태를 점검해서 보여주고, 지난 세션에서 내가 어떤 직무/부서를 담당한다고 했고 어떤 핵심 인사이트를 기억해 달라고 했는지 알려줘.
+```
+
+- **확인 포인트**:
+  - 새 세션임에도 `before_agent_callback`(`_initialize_session_and_rehydrate_memory`)과 `preload_memory` / `inspect_session_and_memory_status` 도구가 동작합니다.
+  - `user:profile`(`MD 본부장`, `Women`, `Search`), `app:total_caa_queries_executed` 누적 횟수가 그대로 유지되며, `MemoryService`에서 지난 세션에 저장한 `Outerwear & Coats 마진율 및 반품률 인사이트`를 정확히 찾아내어 브리핑합니다!
+
+### ✅ Check My Progress (Task 4 & 5 전체 완료 자가 진단)
+터미널에서 아래 명령어를 실행하여 모든 실습 과제가 정상 완료되었는지 최종 확인합니다:
+
+```bash
+python3 scripts/03_verify_lab_progress.py --all
+```
+
+---
+
+## Congratulations! (실습 완료)
+축하합니다! 고객의 GCP 프로젝트에 `bigquery-public-data.thelook_ecommerce` 기반의 데모 데이터셋(`thelook_ecommerce_agent`)을 구축하고, **도메인 분리형 3대 BigQuery CAA 에이전트**, **Root Agent 지능형 라우팅**, 그리고 **ADK 표준 `Session Object` + `Memory Object` 아키텍처**까지 전 과정을 성공적으로 구현 및 검증하셨습니다.

@@ -1,0 +1,14 @@
+[project]
+name = "adk-local-web-workspace"
+version = "0.1.0"
+description = "Google ADK Local Web UI Workspace (macOS & Cloudtop compatible)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "certifi>=2024.8.30",
+    "google-adk>=2.7.1",
+    "google-genai>=1.0.0",
+    "mcp==1.29.1",
+    "python-dotenv>=1.0.1",
+    "truststore>=0.10.0",
+]

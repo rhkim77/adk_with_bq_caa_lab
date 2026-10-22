@@ -1,0 +1,26 @@
+# Python & Virtual Environment
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Local SSL Certificates & ADK Runtime Databases
+.certs/
+*/.adk/
+.adk/
+
+# Customer-Specific Environment & Terraform State Files
+customer_config.env
+*/.env
+.env
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/terraform.tfvars
+terraform/.terraform.lock.hcl
+
+# OS & Editor Files
+.DS_Store
+.vscode/
+.idea/

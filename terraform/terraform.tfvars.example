@@ -1,0 +1,11 @@
+# =============================================================================
+# Customer Environment Configuration for Terraform (`terraform.tfvars`)
+# Copy this file to `terraform.tfvars` or run `./scripts/00_configure_customer_env.sh`
+# =============================================================================
+
+project_id           = "your-gcp-project-id"
+region               = "us-central1"
+dataset_id           = "thelook_ecommerce_agent"
+bq_location          = "US"
+seed_demo_data       = true
+provision_caa_agents = true
