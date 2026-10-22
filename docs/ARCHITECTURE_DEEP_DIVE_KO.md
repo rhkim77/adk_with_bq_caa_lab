@@ -10,9 +10,9 @@
 1. **입력 토큰 폭증 (Prompt Bloat & Cost Spike)**:
    - 단일 CAA 에이전트에 많은 테이블과 방대한 시스템 지침(비즈니스 용어집 전체)을 연결하면, 매 질문마다 전체 스키마 메타데이터·샘플 값·용어집이 내부 프롬프트에 주입되어 **질문 1회당 수만~10만+ 입력 토큰**이 소모됩니다.
 2. **유사 컬럼 간 오조인 (Cross-Domain Schema Confusion)**:
-   - 예를 들어 `users.created_at`(가입일), `orders.created_at`(주문일), `inventory_items.created_at`(입고일)이 한 에이전트에 섞여 있으면 LLM이 "지난 달 신규 고객의 주문"을 계산할 때 잘못된 테이블의 날짜 컬럼을 조인할 확률이 높아집니다.
+   - 예를 들어 `users.created_at`(가입일), `orders.created_at`(주문일), `inventory_items.created_at`(입고일)이 한 에이전트에 섞여 있으면 LLM이 "지난 달 신규 사용자의 주문"을 계산할 때 잘못된 테이블의 날짜 컬럼을 조인할 확률이 높아집니다.
 3. **복합 도메인 질문 시 거대 SQL Fan-out 오류**:
-   - 고객 이벤트(`events`, 수백만 행), 주문 상세(`order_items`), 재고(`inventory_items`)를 단일 SQL 쿼리에서 한 번에 `JOIN`하면 다대다(N:M) 카테시안 곱(Fan-out)이 발생하여 집계 수치가 왜곡됩니다.
+   - 사용자 이벤트(`events`, 수백만 행), 주문 상세(`order_items`), 재고(`inventory_items`)를 단일 SQL 쿼리에서 한 번에 `JOIN`하면 다대다(N:M) 카테시안 곱(Fan-out)이 발생하여 집계 수치가 왜곡됩니다.
 
 ### 해결책: 도메인별 테이블 스코핑(Table Scoping) + 계층형 ADK 오케스트레이션
 
@@ -20,7 +20,7 @@
 
 | 도메인 구분 | ADK Sub-Agent 이름 | 연결된 BigQuery CAA 리소스 ID | 스코핑된 테이블 (최소 권한 원칙) | 전담 비즈니스 용어집 (SQL 매핑 규칙) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Domain 1<br/>(고객 & 마케팅)** | `customer_marketing_subagent` | `thelook_customer_marketing_ca` | `users`, `events`, `orders`, `order_items` (4개) | VIP 고객, 이탈/휴면 고객, 신규 가입 고객, 유입 경로(`traffic_source`), 장바구니 포기율, AOV/ARPU |
+| **Domain 1<br/>(사용자 & 마케팅)** | `customer_marketing_subagent` | `thelook_customer_marketing_ca` | `users`, `events`, `orders`, `order_items` (4개) | VIP 사용자, 이탈/휴면 사용자, 신규 가입 사용자, 유입 경로(`traffic_source`), 장바구니 포기율, AOV/ARPU |
 | **Domain 2<br/>(상품 & 수익성)** | `product_profitability_subagent` | `thelook_product_profitability_ca` | `products`, `order_items`, `orders` (3개) | 상품 마진율, 순매출액(Net Revenue), 실판매 마진액, 반품/취소 건, 취소/반품 비율(환불률) |
 | **Domain 3<br/>(물류 & 재고)** | `supply_chain_logistics_subagent` | `thelook_supply_chain_ca` | `distribution_centers`, `inventory_items`, `order_items`, `orders`, `products` (5개) | 물류 센터(DC/창고), 평균 배송 소요 시간(리드타임), 출고 리드타임, 미판매 재고율, 재고 원가 총액 |
 
@@ -72,7 +72,7 @@ flowchart TB
 - 따라서 `customer_marketing_subagent`는 Root를 거치지 않고 곧바로 `transfer_to_agent(agent_name="supply_chain_logistics_subagent")`를 호출하여 **수평 이관(Peer Transfer)**을 수행합니다.
 
 ### 2.3 [Path C] 복합 도메인 질문 — `run_cross_domain_caa_analysis` 병렬 Fan-out
-- 사용자가 한 문장 안에 2~3개 도메인의 지표를 동시에 요구할 때(예: *"유입 경로별 VIP 고객 수, 상품 카테고리별 평균 마진율, 물류센터별 평균 배송 소요 시간을 한 번에 종합 보고서로 비교해줘"*), 단일 Sub-Agent로 제어권을 넘기면 다른 도메인의 테이블을 조회할 수 없습니다.
+- 사용자가 한 문장 안에 2~3개 도메인의 지표를 동시에 요구할 때(예: *"유입 경로별 VIP 사용자 수, 상품 카테고리별 평균 마진율, 물류센터별 평균 배송 소요 시간을 한 번에 종합 보고서로 비교해줘"*), 단일 Sub-Agent로 제어권을 넘기면 다른 도메인의 테이블을 조회할 수 없습니다.
 - 이때 Root Agent는 제어권을 넘기지 않고 직접 `run_cross_domain_caa_analysis(...)` 도구를 호출합니다.
 - 이 도구는 질문을 도메인별 하위 쿼리로 분해(Query Decomposition)한 뒤, Python `ThreadPoolExecutor`를 통해 **3개 도메인 CAA 에이전트의 `:chat` API를 동시에 병렬 호출**하여 대기 시간을 약 60% 단축하고 하나의 경영진 종합 리포트로 합성합니다.
 

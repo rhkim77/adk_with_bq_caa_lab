@@ -12,7 +12,7 @@ Google ADK(`adk web`)는 **하위 폴더 하나당 하나의 독립된 에이전
 | :--- | :--- | :--- | :--- |
 | **★ 메인 실습 파일** | **[`bq_caa_3domain_multi_agent/agent.py`](../bq_caa_3domain_multi_agent/agent.py)** | `bq_caa_3domain_multi_agent` | **Root Router Agent + 3개 도메인 BQ CAA Sub-Agents + 4-Scope `Session.state` + `MemoryService` 장기 기억 아키텍처**가 모두 구현된 핵심 파일 |
 | **백엔드 프로비저닝** | **[`provision_bq_caa_demo.py`](../provision_bq_caa_demo.py)** | *(CLI 실행 스크립트)* | ADK 에이전트가 호출할 Google Cloud 백엔드의 **BigQuery Conversational Analytics(CAA) Data Agent 6종**을 GDA v1 REST API로 생성·업데이트 |
-| **데이터 준비 스크립트** | **[`scripts/01_prepare_bigquery_data.py`](../scripts/01_prepare_bigquery_data.py)** | *(CLI 실행 스크립트)* | `bigquery-public-data.thelook_ecommerce` 테이블을 고객 프로젝트(`<PROJECT_ID>.thelook_ecommerce_agent`, 기본 리전 `US`)로 고속 CTAS 복제 후 시나리오 데이터 시딩 |
+| **데이터 준비 스크립트** | **[`scripts/01_prepare_bigquery_data.py`](../scripts/01_prepare_bigquery_data.py)** | *(CLI 실행 스크립트)* | `bigquery-public-data.thelook_ecommerce` 테이블을 사용자 프로젝트(`<PROJECT_ID>.thelook_ecommerce_agent`, 기본 리전 `US`)로 고속 CTAS 복제 후 시나리오 데이터 시딩 |
 | **보조 데모 1 (단일 비교)** | **[`bq_caa_toolset_agent/agent.py`](../bq_caa_toolset_agent/agent.py)** | `bq_caa_toolset_agent` | 거버넌스 미적용(`Baseline`) vs. 거버넌스 적용(`Governed`) CAA 에이전트의 SQL 정확도 차이를 비교 시연하는 단일 에이전트 |
 | **보조 데모 2 (스트리밍)** | **[`bq_caa_streaming_agent/agent.py`](../bq_caa_streaming_agent/agent.py)** | `bq_caa_streaming_agent` | LLM 라우터를 거치지 않고 Python `BaseAgent`에서 직접 BigQuery CAA 스트리밍 API를 호출하는 아키텍처 비교용 참조 구현체 |
 
@@ -25,7 +25,7 @@ Google ADK(`adk web`)는 **하위 폴더 하나당 하나의 독립된 에이전
 | 구성 요소 | 코드 심볼 (변수/함수명) | 라인 범위 | 상세 역할 |
 | :--- | :--- | :--- | :--- |
 | **Root Agent 정의** | `root_agent` (`thelook_enterprise_root_router`) | `L1064–L1119` | 사용자 질의를 분석하여 **단일 도메인(`transfer_to_agent`)** 또는 **복합 도메인(`run_cross_domain_caa_analysis`)**으로 라우팅하고, Session/Memory 콜백 및 도구를 총괄하는 최상위 `LlmAgent` |
-| **Sub-Agent 1 (고객/마케팅)** | `customer_marketing_subagent` | `L954–L987` | `users`, `orders`, `events`, `order_items` 테이블만 격리 조회하는 고객·마케팅 도메인 전문 `LlmAgent` |
+| **Sub-Agent 1 (사용자/마케팅)** | `customer_marketing_subagent` | `L954–L987` | `users`, `orders`, `events`, `order_items` 테이블만 격리 조회하는 사용자·마케팅 도메인 전문 `LlmAgent` |
 | **Sub-Agent 2 (상품/수익성)** | `product_profitability_subagent` | `L989–L1022` | `products`, `order_items`, `orders` 테이블만 격리 조회하여 순매출·마진·반품률을 계산하는 수익성 전문 `LlmAgent` |
 | **Sub-Agent 3 (물류/공급망)** | `supply_chain_logistics_subagent` | `L1024–L1058` | `distribution_centers`, `inventory_items`, `order_items`, `orders`, `products` 테이블만 격리 조회하여 물류센터 병목·재고 체류를 분석하는 물류 전문 `LlmAgent` |
 | **병렬 복합 분석 도구** | `run_cross_domain_caa_analysis` | `L867–L938` | 2개 이상의 도메인이 결합된 질문일 때 `ThreadPoolExecutor(max_workers=3)`로 3개 BQ CAA를 동시 호출하는 Root Agent 전용 Tool |

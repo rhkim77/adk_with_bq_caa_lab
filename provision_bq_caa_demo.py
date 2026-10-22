@@ -83,13 +83,13 @@ GOVERNED_SYSTEM_INSTRUCTION = """당신은 `{dataset}` 이커머스 데이터 �
 사용자의 질문에 답변할 때 반드시 아래 정의된 사내 표준 비즈니스 용어집(Business Glossary) 및 SQL 매핑 규칙(SQL Mapping Ruleset)을 엄격히 준수하여 SQL을 작성하세요.
 
 [사내 표준 비즈니스 용어 및 SQL 매핑 규칙 (10대 핵심 지표)]
-1. VIP 고객 (동의어: 우수 고객, 핵심 고객, VIP):
+1. VIP 고객 / VIP 사용자 (동의어: 우수 고객, 우수 사용자, 핵심 고객, 핵심 사용자, VIP):
    - 정의: 누적 구매 금액(`order_items.sale_price` 합계)이 $500 이상이거나, 총 주문 건수(고유 `order_id` 수)가 5회 이상인 고객 (`users.id` / `order_items.user_id`).
    - SQL 조건 예시:
      `user_id IN (SELECT user_id FROM `{project}.{dataset}.order_items` GROUP BY user_id HAVING SUM(sale_price) >= 500 OR COUNT(DISTINCT order_id) >= 5)`
-2. 이탈 고객 (동의어: 휴면 고객, 비활성 사용자):
+2. 이탈 고객 / 이탈 사용자 (동의어: 휴면 고객, 휴면 사용자, 비활성 사용자):
    - 정의: 가입한 전체 고객(`users`) 중 최근 90일 이내에 주문 이력(`orders.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)`)이 전혀 없는 고객.
-3. 신규 가입 고객 (동의어: 신규 회원):
+3. 신규 가입 고객 / 신규 가입 사용자 (동의어: 신규 회원, 신규 사용자):
    - 정의: 최근 30일 이내에 가입(`users.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)`)한 고객.
 4. 유입 경로 (동의어: 마케팅 채널, 가입 경로):
    - 정의: 고객 가입 시점의 유입 마케팅 채널 (`users.traffic_source` 컬럼).
@@ -125,13 +125,13 @@ CUSTOMER_MARKETING_SYSTEM_INSTRUCTION = """당신은 `{dataset}`의 **고객 CRM
 연결된 도메인 테이블(`users`, `events`, `orders`, `order_items`)과 아래 고객·마케팅 표준 비즈니스 용어집을 엄격히 준수하여 SQL을 생성하세요.
 
 [고객 & 마케팅 도메인 표준 용어 및 SQL 매핑 규칙]
-1. VIP 고객 (동의어: 우수 고객, 핵심 고객, VIP):
+1. VIP 고객 / VIP 사용자 (동의어: 우수 고객, 우수 사용자, 핵심 고객, 핵심 사용자, VIP):
    - 정의: 누적 구매 금액(`order_items.sale_price` 합계)이 $500 이상이거나, 총 주문 건수(`COUNT(DISTINCT order_id)`)가 5회 이상인 고객 (`users.id = order_items.user_id`).
    - SQL 조건:
      `user_id IN (SELECT user_id FROM `{project}.{dataset}.order_items` GROUP BY user_id HAVING SUM(sale_price) >= 500 OR COUNT(DISTINCT order_id) >= 5)`
-2. 이탈 고객 (동의어: 휴면 고객, 비활성 사용자, Churn Customer):
+2. 이탈 고객 / 이탈 사용자 (동의어: 휴면 고객, 휴면 사용자, 비활성 사용자, Churn Customer):
    - 정의: 전체 가입 고객(`users`) 중 최근 90일 이내에 주문 이력(`orders.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)`)이 없는 고객.
-3. 신규 가입 고객 (동의어: 신규 회원):
+3. 신규 가입 고객 / 신규 가입 사용자 (동의어: 신규 회원, 신규 사용자):
    - 정의: 최근 30일 이내 가입(`users.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)`)한 고객.
 4. 유입 경로 (동의어: 마케팅 채널, 가입 채널, 트래픽 소스):
    - 정의: `users.traffic_source` 또는 `events.traffic_source` 컬럼 (`Search`, `Organic`, `Facebook`, `Email`, `Display`).

@@ -5,7 +5,7 @@
 [![Google ADK](https://img.shields.io/badge/Google_ADK-v2.8+-34A853?logo=google)](https://adk.dev/)
 [![Terraform](https://img.shields.io/badge/IaC-Terraform-7B42BC?logo=terraform)](./terraform/)
 
-본 리포지토리는 고객사의 Google Cloud 환경에서 **`bigquery-public-data.thelook_ecommerce` 기반의 신규 데이터셋(`<PROJECT_ID>.thelook_ecommerce_agent`, 기본 리전: `US`)을 자동으로 생성하고 데모 시나리오용 골든 데이터를 증강**한 뒤, **Root Agent + 3대 도메인 BigQuery CAA Sub-Agents 라우팅**과 **ADK 표준 `Session Object`(4-Scope State) + `Memory Object`(장기 기억) 아키텍처**를 단계별로 구축·실습할 수 있도록 패키징된 Qwiklabs 스타일 핸즈온 랩입니다.
+본 리포지토리는 사용자의 Google Cloud 환경에서 **`bigquery-public-data.thelook_ecommerce` 기반의 신규 데이터셋(`<PROJECT_ID>.thelook_ecommerce_agent`, 기본 리전: `US`)을 자동으로 생성하고 데모 시나리오용 골든 데이터를 증강**한 뒤, **Root Agent + 3대 도메인 BigQuery CAA Sub-Agents 라우팅**과 **ADK 표준 `Session Object`(4-Scope State) + `Memory Object`(장기 기억) 아키텍처**를 단계별로 구축·실습할 수 있도록 패키징된 Qwiklabs 스타일 핸즈온 랩입니다.
 
 ---
 
@@ -70,7 +70,7 @@ flowchart LR
 │   ├── ARCHITECTURE_DEEP_DIVE_KO.md                # 라우팅 로직 및 Session/Memory 아키텍처 심층 해설서
 │   └── CODE_WALKTHROUGH_ROOT_AGENT_AND_SESSION_KO.md # Root Agent 구성 .py 코드 맵 & Session/Memory API 레퍼런스
 ├── scripts/
-│   ├── 00_configure_customer_env.sh           # 고객 정보(PROJECT_ID, DATASET_ID, REGION) 대화형 설정 마법사
+│   ├── 00_configure_customer_env.sh           # 사용자 정보(PROJECT_ID, DATASET_ID, REGION) 대화형 설정 마법사
 │   ├── 01_prepare_bigquery_data.py            # 퍼블릭 데이터 복제(15초 CTAS) + 3대 도메인 데모 데이터 시딩
 │   ├── 02_provision_bq_caa_agents.py          # 6개 BigQuery CAA 에이전트 자동 프로비저닝
 │   └── 03_verify_lab_progress.py              # Qwiklabs 'Check My Progress' 스타일 단계별 완료 검증기
@@ -79,10 +79,10 @@ flowchart LR
 │   ├── variables.tf                           # project_id, dataset_id(thelook_ecommerce_agent), bq_location(US)
 │   ├── main.tf                                # GCP API 활성화 + BigQuery Dataset + 데이터/CAA 프로비저닝
 │   ├── outputs.tf                             # 프로비저닝 결과 출력 (Student Visible Outputs)
-│   └── terraform.tfvars.example               # 고객 변수 입력 예시 파일
+│   └── terraform.tfvars.example               # 사용자 변수 입력 예시 파일
 ├── sql/
 │   ├── 01_clone_public_thelook.sql            # bigquery-public-data.thelook_ecommerce 7개 테이블 복제 SQL
-│   └── 02_seed_demo_scenarios.sql             # VIP 고객 / 고마진 반품 이상징후 / 물류센터 배송지연 시드 SQL
+│   └── 02_seed_demo_scenarios.sql             # VIP 사용자 / 고마진 반품 이상징후 / 물류센터 배송지연 시드 SQL
 ├── bq_caa_3domain_multi_agent/                # [Main Lab] Root Router + 3 Domain CAA Sub-Agents + Session/Memory
 ├── bq_caa_toolset_agent/                      # [Comparison] Single CAA Agent (Baseline vs Governed 비교용)
 ├── bq_caa_streaming_agent/                    # [Streaming] Deterministic Multi-Turn Streaming + State Handoff
@@ -93,9 +93,9 @@ flowchart LR
 
 ---
 
-## 🚀 5분 Quickstart (고객 환경 실행 순서)
+## 🚀 5분 Quickstart (사용자 환경 실행 순서)
 
-### Step 1. 고객 GCP 프로젝트 정보 설정 (`thelook_ecommerce_agent`, 리전 `US` 기본값)
+### Step 1. 사용자 GCP 프로젝트 정보 설정 (`thelook_ecommerce_agent`, 리전 `US` 기본값)
 ```bash
 chmod +x scripts/00_configure_customer_env.sh setup_mac_adk.sh run_adk_web.sh
 ./scripts/00_configure_customer_env.sh
