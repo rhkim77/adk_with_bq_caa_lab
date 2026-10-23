@@ -92,11 +92,9 @@ def _call_caa_stream_sync(
   payload = {
       "messages": messages,
       "dataAgentContext": {"dataAgent": data_agent_name},
-      "clientIdEnum": "GOOGLE_ADK",
   }
   headers = {
       "Content-Type": "application/json",
-      "X-Goog-API-Client": "GOOGLE_ADK",
   }
 
   chunks: list[dict[str, Any]] = []
@@ -170,7 +168,7 @@ class ConversationalAnalyticsStreamingAgent(BaseAgent):
         text_type = sm["text"].get("textType", "")
         joined = "".join(str(p) for p in parts).strip()
         if joined:
-          if text_type == "THOUGHT":
+          if text_type in ("THOUGHT", "PROGRESS"):
             rendered_sections.append(f"> 💭 **[CA 추론]** {joined}")
           else:
             summary_parts.append(joined)

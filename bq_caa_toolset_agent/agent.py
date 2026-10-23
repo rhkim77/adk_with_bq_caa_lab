@@ -2,9 +2,9 @@
 
 Wraps ADK's `google.adk.tools.data_agent.data_agent_tool` functions (`list_accessible_data_agents`,
 `get_data_agent_info`, `ask_data_agent`) directly with Keyless ADC (`cloud-platform` scope),
-bypassing the bug in `google.adk.tools.data_agent.credentials.DataAgentCredentialsConfig`
-where `DATA_AGENT_DEFAULT_SCOPE` is hardcoded to `['https://www.googleapis.com/auth/bigquery']`
-(which triggers `adk_request_credential` and fails with 403 insufficient authentication scopes on GDA API).
+avoiding the default `DATA_AGENT_DEFAULT_SCOPE = ['https://www.googleapis.com/auth/bigquery']`
+in `google.adk.tools.data_agent.credentials.DataAgentCredentialsConfig` when `scopes` is omitted
+(which can fail with 403 insufficient authentication scopes on GDA API).
 """
 
 from __future__ import annotations

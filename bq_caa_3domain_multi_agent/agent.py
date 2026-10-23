@@ -403,28 +403,29 @@ def _query_domain_caa_agent(
     domain_label: str,
     query: str,
     tool_context: ToolContext | None = None,
+    prior_messages_override: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
   """Calls a specific domain-scoped BigQuery CAA Data Agent directly via `:chat` with Multi-Turn Session History."""
   data_agent_name = f"projects/{PROJECT_ID}/locations/global/dataAgents/{agent_id}"
   session = AuthorizedSession(_get_cloud_platform_adc())
   url = f"https://geminidataanalytics.googleapis.com/v1/projects/{PROJECT_ID}/locations/global:chat"
 
-  # Chain previous domain conversation turns from `tool_context.state` if available
+  # Chain previous domain conversation turns (last 3 turns = 6 messages) from `tool_context.state`
   messages: list[dict[str, Any]] = []
-  if tool_context is not None:
+  if prior_messages_override is not None:
+    messages.extend(prior_messages_override[-6:])
+  elif tool_context is not None:
     multiturn_map = tool_context.state.get("domain_ca_multiturn_messages", {})
     if isinstance(multiturn_map, dict) and agent_id in multiturn_map:
-      messages.extend(multiturn_map[agent_id][-4:])
+      messages.extend(multiturn_map[agent_id][-6:])
   messages.append({"userMessage": {"text": query}})
 
   payload = {
       "messages": messages,
       "dataAgentContext": {"dataAgent": data_agent_name},
-      "clientIdEnum": "GOOGLE_ADK",
   }
   headers = {
       "Content-Type": "application/json",
-      "X-Goog-API-Client": "GOOGLE_ADK",
   }
 
   chunks: list[dict[str, Any]] = []
@@ -479,7 +480,7 @@ def _query_domain_caa_agent(
       text_type = sm["text"].get("textType", "")
       joined = "".join(str(p) for p in parts).strip()
       if joined:
-        if text_type == "THOUGHT":
+        if text_type in ("THOUGHT", "PROGRESS"):
           thoughts.append(joined)
         else:
           final_texts.append(joined)
@@ -904,10 +905,25 @@ def run_cross_domain_caa_analysis(
   if not tasks:
     return {"status": "NO_QUERIES_PROVIDED"}
 
+  multiturn_snapshot: dict[str, list[dict[str, Any]]] = {}
+  if tool_context is not None:
+    raw_map = tool_context.state.get("domain_ca_multiturn_messages", {})
+    if isinstance(raw_map, dict):
+      multiturn_snapshot = {
+          k: list(v)[-6:] for k, v in raw_map.items() if isinstance(v, list)
+      }
+
   results: dict[str, Any] = {}
   with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
     future_map = {
-        pool.submit(_query_domain_caa_agent, agent_id, label, q, None): (
+        pool.submit(
+            _query_domain_caa_agent,
+            agent_id,
+            label,
+            q,
+            None,
+            multiturn_snapshot.get(agent_id, []),
+        ): (
             agent_id,
             label,
             q,
@@ -978,7 +994,6 @@ customer_marketing_subagent = LlmAgent(
         preload_memory,
         load_memory,
         ask_customer_marketing_caa,
-        get_customer_marketing_caa_info,
         save_user_preference_and_memory,
         inspect_session_and_memory_status,
     ],
@@ -1013,7 +1028,6 @@ product_profitability_subagent = LlmAgent(
         preload_memory,
         load_memory,
         ask_product_profitability_caa,
-        get_product_profitability_caa_info,
         save_user_preference_and_memory,
         inspect_session_and_memory_status,
     ],
@@ -1049,7 +1063,6 @@ supply_chain_logistics_subagent = LlmAgent(
         preload_memory,
         load_memory,
         ask_supply_chain_logistics_caa,
-        get_supply_chain_logistics_caa_info,
         save_user_preference_and_memory,
         inspect_session_and_memory_status,
     ],
