@@ -25,5 +25,6 @@ terraform/.terraform.lock.hcl
 .vscode/
 .idea/
 
-# Internal Documentation (Not deployed to public GitHub Web)
+# Internal Documentation (Synced to local MacBook, NEVER deployed to public GitHub Web)
 internal_docs/
+docs/LINE_BY_LINE_SOURCE_CODE_ANALYSIS_KO.md
