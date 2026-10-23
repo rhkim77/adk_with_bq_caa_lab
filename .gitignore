@@ -24,3 +24,6 @@ terraform/.terraform.lock.hcl
 .DS_Store
 .vscode/
 .idea/
+
+# Internal Documentation (Not deployed to public GitHub Web)
+internal_docs/

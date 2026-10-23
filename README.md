@@ -16,9 +16,6 @@
 2. 🏛️ **[Architecture Deep Dive Technical Whitepaper (`docs/ARCHITECTURE_DEEP_DIVE_KO.md`)](docs/ARCHITECTURE_DEEP_DIVE_KO.md)**
    - **Root Agent → 3 BQ CAA Sub-Agents Routing Logic (`transfer_to_agent`, `TransferToAgentTool` Enum 제약, Peer-to-Peer 전환, `run_cross_domain_caa_analysis` 병렬 Fan-out)**
    - **ADK 표준 `Session Object` (`temp:`, `session`, `user:`, `app:` 4-Scope State) + `Memory Object` (`add_session_to_memory`, `preload_memory`, `load_memory`, `.adk/long_term_memory_bank.json`) 설계 원리**
-3. 🔍 **[Code Walkthrough & Session/Memory API Reference (`docs/CODE_WALKTHROUGH_ROOT_AGENT_AND_SESSION_KO.md`)](docs/CODE_WALKTHROUGH_ROOT_AGENT_AND_SESSION_KO.md)**
-   - **Repository 내 `.py` File별 역할 구분 및 `bq_caa_3domain_multi_agent/agent.py` Line별 Code Map (`root_agent`, 3개 Domain Sub-Agent, 병렬 분석 Tool)**
-   - **Session 및 Memory 제어를 위해 호출하는 Google ADK 표준 Library(`CallbackContext`, `ToolContext`, `Event`, `preload_memory`, `load_memory`) 및 5대 내부 Function 상세 분석**
 
 ---
 
@@ -67,8 +64,7 @@ flowchart LR
 ├── README.md                                     # Repository 개요 및 Quickstart Guide
 ├── docs/
 │   ├── QWIKLABS_HANDSON_LAB_GUIDE_KO.md            # [필독] Qwiklabs 형식 단계별 Hands-on Lab Guide (Task 1~5)
-│   ├── ARCHITECTURE_DEEP_DIVE_KO.md                # Routing Logic 및 Session/Memory Architecture 심층 해설서
-│   └── CODE_WALKTHROUGH_ROOT_AGENT_AND_SESSION_KO.md # Root Agent 구성 .py Code Map & Session/Memory API Reference
+│   └── ARCHITECTURE_DEEP_DIVE_KO.md                # Routing Logic 및 Session/Memory Architecture 심층 해설서
 ├── scripts/
 │   ├── 00_configure_customer_env.sh              # 사용자 정보(PROJECT_ID, DATASET_ID, REGION) 대화형 설정 Wizard
 │   ├── 01_prepare_bigquery_data.py               # Public Data 복제(15초 CTAS) + 3대 Domain Demo Data Seeding
