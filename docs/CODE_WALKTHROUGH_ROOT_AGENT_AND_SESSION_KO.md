@@ -20,16 +20,16 @@ Google ADK(`adk web`)는 **하위 Folder 하나당 하나의 독립된 Agent App
 
 ## 2. Main File(`bq_caa_3domain_multi_agent/agent.py`) Code Map
 
-[`bq_caa_3domain_multi_agent/agent.py`](../bq_caa_3domain_multi_agent/agent.py) (총 1,119 Lines) 내부에서 Root Agent와 3개 Sub-Agent를 구성하는 핵심 Symbol 및 Line 범위는 다음과 같습니다:
+[`bq_caa_3domain_multi_agent/agent.py`](../bq_caa_3domain_multi_agent/agent.py) (총 1,132 Lines) 내부에서 Root Agent와 3개 Sub-Agent를 구성하는 핵심 Symbol 및 Line 범위는 다음과 같습니다:
 
 | 구성 요소 | Code Symbol (Variable/Function명) | Line 범위 | 상세 역할 |
 | :--- | :--- | :--- | :--- |
-| **Root Agent 정의** | `root_agent` (`thelook_enterprise_root_router`) | `L1064–L1119` | 사용자 질의를 분석하여 **단일 Domain(`transfer_to_agent`)** 또는 **복합 Domain(`run_cross_domain_caa_analysis`)**으로 Routing하고, Session/Memory Callback 및 Tool을 총괄하는 최상위 `LlmAgent` |
-| **Sub-Agent 1 (사용자/마케팅)** | `customer_marketing_subagent` | `L954–L987` | `users`, `orders`, `events`, `order_items` Table만 격리 조회하는 사용자·마케팅 Domain 전문 `LlmAgent` |
-| **Sub-Agent 2 (상품/수익성)** | `product_profitability_subagent` | `L989–L1022` | `products`, `order_items`, `orders` Table만 격리 조회하여 순매출·마진·반품률을 계산하는 수익성 전문 `LlmAgent` |
-| **Sub-Agent 3 (물류/공급망)** | `supply_chain_logistics_subagent` | `L1024–L1058` | `distribution_centers`, `inventory_items`, `order_items`, `orders`, `products` Table만 격리 조회하여 물류센터 병목·재고 체류를 분석하는 물류 전문 `LlmAgent` |
-| **병렬 복합 분석 Tool** | `run_cross_domain_caa_analysis` | `L867–L938` | 2개 이상의 Domain이 결합된 질문일 때 `ThreadPoolExecutor(max_workers=3)`로 3개 BQ CAA를 동시 호출하는 Root Agent 전용 Tool |
-| **Domain별 CAA 호출 Tool** | `_query_domain_caa_agent`<br/>`ask_customer_marketing_caa`<br/>`ask_product_profitability_caa`<br/>`ask_supply_chain_logistics_caa` | `L401–L521`<br/>`L714–L756`<br/>`L768–L810`<br/>`L822–L864` | BigQuery GDA `:chat` REST API를 호출해 Golden SQL / Verified Answer를 받아오고 실행 결과를 `Session.state`에 자동 누적 |
+| **Root Agent 정의** | `root_agent` (`thelook_enterprise_root_router`) | `L1077–L1132` | 사용자 질의를 분석하여 **단일 Domain(`transfer_to_agent`)** 또는 **복합 Domain(`run_cross_domain_caa_analysis`)**으로 Routing하고, Session/Memory Callback 및 Tool을 총괄하는 최상위 `LlmAgent` |
+| **Sub-Agent 1 (사용자/마케팅)** | `customer_marketing_subagent` | `L970–L1002` | `users`, `orders`, `events`, `order_items` Table만 격리 조회하는 사용자·마케팅 Domain 전문 `LlmAgent` (정적 `ask_customer_marketing_caa` Tool만 바인딩하여 메타데이터 탐색 오버헤드 0) |
+| **Sub-Agent 2 (상품/수익성)** | `product_profitability_subagent` | `L1004–L1036` | `products`, `order_items`, `orders` Table만 격리 조회하여 순매출·마진·반품률을 계산하는 수익성 전문 `LlmAgent` (`ask_product_profitability_caa` 전용 바인딩) |
+| **Sub-Agent 3 (물류/공급망)** | `supply_chain_logistics_subagent` | `L1038–L1071` | `distribution_centers`, `inventory_items`, `order_items`, `orders`, `products` Table만 격리 조회하여 물류센터 병목·재고 체류를 분석하는 물류 전문 `LlmAgent` (`ask_supply_chain_logistics_caa` 전용 바인딩) |
+| **병렬 복합 분석 Tool** | `run_cross_domain_caa_analysis` | `L868–L951` | 2개 이상의 Domain이 결합된 질문일 때 `ThreadPoolExecutor(max_workers=3)`로 3개 BQ CAA를 동시 호출(`multiturn_snapshot` 전달)하는 Root Agent 전용 Tool |
+| **Domain별 CAA 호출 Tool** | `_query_domain_caa_agent`<br/>`ask_customer_marketing_caa`<br/>`ask_product_profitability_caa`<br/>`ask_supply_chain_logistics_caa` | `L401–L522`<br/>`L715–L745`<br/>`L747–L777`<br/>`L779–L809` | BigQuery GDA `v1` `:chat` REST API(`DataAgentContext`, 필요 권한: `dataAgentUser`)를 호출해 `THOUGHT`/`PROGRESS`를 제외한 최종 답변과 20행 Markdown 요약 표를 받아오고 실행 결과를 `Session.state`에 자동 누적 |
 | **Session & Memory Callback** | `_initialize_session_and_rehydrate_memory`<br/>`_save_session_to_long_term_memory` | `L182–L225`<br/>`L227–L299` | 매 Turn 시작 시 `Session.state`(`app:`, `user:`, `session`, `temp:`) 초기화 + Long-Term Memory 복원(`before_agent_callback`), 매 Turn 종료 시 `MemoryService` Indexing 및 Disk 영속화(`after_agent_callback`) |
 
 ---
@@ -114,9 +114,9 @@ sequenceDiagram
      state["temp:last_caa_row_count"] = len(rows)
      state["temp:last_caa_rows"] = rows[:20]
      ```
-     현재 Turn 응답 생성에만 사용되고 Turn 종료 시 소멸되어 불필요한 Context 오염을 방지합니다.
+     현재 Turn 내 후속 처리에만 사용되고 Turn 종료 시 자동 소멸되어 영속 Session DB 오염을 방지합니다(다음 Turn LLM Prompt 오염 방지는 Tool 반환값에서 대량 Row를 20행 Markdown 표로 제한하고 `THOUGHT`/`PROGRESS`를 제거함으로써 달성).
   2. **Session 누적 Query History 저장 (`L355–L371`)**:
-     `state["session_turn_count"]`를 `+1` 증가시키고, `state["domain_query_history"]` List에 생성된 SQL과 결과 요약을 누적합니다.
+     `state["session_turn_count"]`를 `+1` 증가시키고, `state["domain_query_history"]` List에 생성된 SQL과 결과 요약을 누적합니다(이종 Domain 간 전환 시 Sub-Agent가 이 공통 이력을 참조해 완결형 질의로 재작성).
   3. **Domain별 Multi-Turn Context Chaining (`L374–L380`)**:
      ```python
      multiturn_map = dict(state.get("domain_ca_multiturn_messages", {}))
@@ -126,7 +126,7 @@ sequenceDiagram
      multiturn_map[agent_id] = agent_msgs[-6:]  # 최근 3 Turn(6개 Message) 유지
      state["domain_ca_multiturn_messages"] = multiturn_map
      ```
-     이후 후속 Turn 질문(*"그 중에서 상위 3개만 보여줘"*)이 들어오면 `_query_domain_caa_agent` (`L413–L418`)가 `tool_context.state["domain_ca_multiturn_messages"][agent_id]`에서 이전 대화를 꺼내어 BigQuery CAA `:chat` API의 `messages` 배열에 함께 전송합니다.
+     이후 동일 Domain 후속 Turn 질문(*"그 중에서 상위 3개만 보여줘"*)이 들어오면 `_query_domain_caa_agent` (`L418–L425`)가 `tool_context.state["domain_ca_multiturn_messages"][agent_id][-6:]`에서 최근 3 Turn(6개 Message) 대화를 꺼내어 BigQuery CAA `:chat` API의 `messages` 배열에 함께 전송합니다.
 
 ### ③ Session 종료 후 Long-Term Memory 저장 Callback: `_save_session_to_long_term_memory(callback_context: CallbackContext)` (`L227–L299`)
 - **연결 위치**: `root_agent` 및 3개 Sub-Agent의 `after_agent_callback` Parameter에 등록 (`L986, L1021, L1057, L1117`)

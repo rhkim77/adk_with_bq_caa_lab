@@ -1,11 +1,14 @@
 # BigQuery Conversational Analytics (CAA) & Google ADK Multi-Agent Hands-on Lab
-**(Domain-Scoped 3-SubAgent Routing + ADK Standard `Session Object` & `Memory Object` Architecture)**
+**(Domain-Scoped 3-SubAgent Routing + ADK `Session Object` & `Memory Object` Architecture Pattern)**
 
 [![Google Cloud](https://img.shields.io/badge/Google_Cloud-BigQuery_CAA-4285F4?logo=googlecloud)](https://cloud.google.com/bigquery)
-[![Google ADK](https://img.shields.io/badge/Google_ADK-v2.8+-34A853?logo=google)](https://adk.dev/)
+[![Google ADK](https://img.shields.io/badge/Google_ADK-v2.7+-34A853?logo=google)](https://adk.dev/)
 [![Terraform](https://img.shields.io/badge/IaC-Terraform-7B42BC?logo=terraform)](./terraform/)
 
-본 Repository는 사용자의 Google Cloud 환경에서 **`bigquery-public-data.thelook_ecommerce` 기반의 신규 Dataset(`<PROJECT_ID>.thelook_ecommerce_agent`, 기본 Region: `US`)을 자동으로 생성하고 Demo Scenario용 Golden Data를 증강**한 뒤, **Root Agent + 3대 Domain BigQuery CAA Sub-Agents Routing**과 **ADK 표준 `Session Object`(4-Scope State) + `Memory Object`(Long-Term Memory) Architecture**를 단계별로 구축·실습할 수 있도록 구성한 Qwiklabs 스타일 Hands-on Lab입니다.
+본 Repository는 사용자의 Google Cloud 환경에서 **`bigquery-public-data.thelook_ecommerce` 기반의 신규 Dataset(`<PROJECT_ID>.thelook_ecommerce_agent`, 기본 Region: `US`)을 자동으로 생성하고 Demo Scenario용 Golden Data를 증강**한 뒤, **Root Agent + 3대 Domain BigQuery CAA Sub-Agents Routing**과 **ADK `Session Object`(4-Scope State) + `Memory Object`(Long-Term Memory) Architecture Pattern**을 단계별로 구축·실습할 수 있도록 구성한 Qwiklabs 스타일 Hands-on Lab입니다.
+
+> **공식 Integration Pattern 및 State Management 설계 배경 (`[확인됨 / Verified]`)**:
+> Google Cloud 공식 문서([Integration patterns for data agents](https://cloud.google.com/gemini/docs/conversational-analytics-api/integration-patterns) 및 [State management for data agents](https://cloud.google.com/gemini/docs/conversational-analytics-api/state-management))에서는 BQ CAA 연동 방식을 크게 **Direct API, ADK, MCP, A2A의 4대 통합 접근법(7개 세부 패턴)**과 **3가지 API Context Mode(`ConversationReference`, `DataAgentContext`, `InlineContext`)**로 정의하고 있습니다. 본 Repository는 그중 엔터프라이즈 Multi-Agent 환경에서 Governance(Glossary/Verified Queries)가 보장되는 **핵심 패턴들(ADK `DataAgentToolset`, ADK `Custom Streaming Sub-Agent`, `Direct API Orchestrator`, `A2A`/`MCP`)**을 추려 비교하고, 실제 대규모 운영 시 발생하는 Token 비용 문제를 해결하기 위해 **ADK `Session`/`Memory` 기반의 경량 최적화 Best Practice**를 결합한 아키텍처 구현체입니다.
 
 ---
 
@@ -52,10 +55,10 @@ flowchart LR
 
 ### 왜 이 Architecture가 필요한가? (Key Value Propositions)
 
-| 핵심 과제 | 기존 단일 NL2SQL Agent의 한계 | 본 Architecture의 해결 방식 (`bq_caa_3domain_multi_agent`) |
+| 핵심 과제 | 기존 단일 Agent 또는 기본 단발성 호출의 한계 | 본 Architecture의 해결 방식 (`bq_caa_3domain_multi_agent`) |
 | :--- | :--- | :--- |
-| **1. Domain Routing 및 Token/정확도 최적화** | 모든 Table과 Business Glossary를 1개 CAA Agent에 연결하여 입력 Token 폭증 및 유사 Column(`created_at`) 오조인(Mis-Join) 발생 | **Root Agent + 3 Domain-Scoped CAA Sub-Agents**: Domain별 필수 Table(4/3/5개)과 전용 Business Glossary만 분리 연결하고, 단일 Domain은 `transfer_to_agent`, 복합 Domain은 `ThreadPoolExecutor` 병렬 Fan-out으로 처리 |
-| **2. Multi-Turn 대화 Context 유지 (`Session Object`)** | 후속 질문("그 중 상위 5개만")에서 이전 SQL 조건 유실 | **ADK 4-Scope `Session.state` (`temp:`, `session`, `user:`, `app:`)**: `domain_query_history` 및 `domain_ca_multiturn_messages`로 Domain별 직전 3 Turn 대화를 CAA `:chat` API에 자동 Chaining |
+| **1. Domain Routing 및 Token/정확도 최적화** | 모든 Table과 Business Glossary를 1개 CAA Agent에 연결하거나 매번 `list`/`get_data_agent_info`를 호출하여 입력 Token 급증 및 유사 Column(`created_at`) 오조인 발생 | **Root Agent + 3 Domain-Scoped CAA Sub-Agents**: Domain별 필수 Table(4/3/5개)과 전용 Business Glossary만 분리 연결하고, 정적 `agent_id` Tool Binding(메타데이터 탐색 Token 0)과 `transfer_to_agent` / `ThreadPoolExecutor` 병렬 Fan-out으로 처리 |
+| **2. Multi-Turn 대화 Context 유지 및 Token 상한 관리 (`Session Object`)** | ADK 기본 `ask_data_agent`는 매 요청에 현재 질문 1개만 전달(One-Shot Stateless)하여 후속 질문에서 이전 SQL 조건 유실 (반면 관리형 `ConversationReference`는 `1 Conversation = 1 Agent` 제약으로 도메인 전환 불가) | **Stateless API(`DataAgentContext`) + ADK 4-Scope `Session.state` (`temp:`, `session`, `user:`, `app:`)**: 동일 Domain은 `domain_ca_multiturn_messages[-6:]`(최근 3 Turn)를 CAA `:chat` API의 `messages` 배열에 자동 Chaining하고, 이종 Domain 간에는 `domain_query_history` 기반 완결형 질의 재작성(Standalone Query Rewriting) 및 Tool 반환값 경량화(20행 요약 + `THOUGHT`/`PROGRESS` 제거) 적용 |
 | **3. Cross-Session Long-Term Memory (`Memory Object`)** | 새 채팅(`+ New Session`) 생성 시 사용자의 담당 부서·중점 KPI·이전 분석 Insight 초기화 | **`after_agent_callback`(`add_session_to_memory`) + `preload_memory` / `load_memory` + `.adk/long_term_memory_bank.json`**: 새 Session을 열거나 Server를 재시작해도 사용자 Profile(`user:profile`)과 과거 분석 결론을 즉시 복원 |
 
 ---

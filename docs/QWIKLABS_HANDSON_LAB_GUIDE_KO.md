@@ -1,5 +1,5 @@
 # [Qwiklabs Hands-on Lab] BigQuery Conversational Analytics (CAA) & Google ADK Multi-Agent 구축 실습 Guide
-**(Domain-Scoped 3-SubAgent Routing + ADK Standard `Session Object` & `Memory Object` Architecture)**
+**(Domain-Scoped 3-SubAgent Routing + ADK `Session Object` & `Memory Object` Architecture Pattern)**
 
 ---
 
@@ -14,16 +14,18 @@
 
 ## Overview (실습 개요)
 
+Google Cloud 공식 문서([Integration patterns for data agents](https://cloud.google.com/gemini/docs/conversational-analytics-api/integration-patterns))에서는 BQ CAA 연동 방식을 크게 **Direct API, ADK, MCP, A2A의 4대 통합 접근법(7개 세부 패턴)**으로 정의하고 있습니다. 본 Lab은 그중 엔터프라이즈 Multi-Agent 환경에서 Governance(Glossary/Verified Queries)가 보장되는 **핵심 패턴들(ADK `DataAgentToolset`, ADK `Custom Streaming Sub-Agent`, `Direct API Orchestrator`, `A2A`/`MCP`)**을 바탕으로, 실제 대규모 운영 시 발생하는 Token 비용 문제를 해결하기 위해 **ADK `Session`/`Memory` 기반의 경량 최적화 Best Practice**를 결합한 아키텍처를 실습합니다.
+
 Enterprise 환경에서 자연어 기반 SQL 분석(NL2SQL) Agent를 구축할 때 가장 흔히 겪는 **3가지 실무 문제**는 다음과 같습니다:
 
 1. **단일 거대 Agent의 Token 비용 폭증 및 오조인(Mis-Join) 문제**:
    - 수십 개의 Table과 모든 부서의 Business Glossary를 단 하나의 BigQuery CAA Agent에 몰아넣으면, 매 질문마다 불필요한 Schema와 규칙이 Prompt에 포함되어 입력 Token이 급증하고 유사 Column(`users.created_at` vs `orders.created_at` vs `inventory_items.created_at`) 간 오조인이 발생합니다.
-2. **Multi-Turn 대화 Context 단절 (Stateless Amnesia)**:
-   - 이전 질문에서 걸었던 조건(예: *"Women 부서 중에서"*)을 후속 질문(*"환불률이 가장 높은 브랜드는?"*)에서 잃어버리거나, 하위 CAA Engine에 이전 대화 History가 전달되지 않아 엉뚱한 SQL을 생성합니다.
+2. **무이력 단발 호출(One-Shot Stateless) 시의 Multi-Turn 대화 Context 단절**:
+   - 공식 Stateless API(`DataAgentContext`) 자체는 `messages` 배열에 이력을 담아 보내면 Multi-Turn이 가능하지만, ADK 기본 내장 `ask_data_agent`처럼 이력 체이닝 없이 현재 질문 1개만 단발성으로 전달하면 이전 질문에서 걸었던 조건(예: *"Women 부서 중에서"*)을 후속 질문(*"환불률이 가장 높은 브랜드는?"*)에서 잃어버리게 됩니다(반면 관리형 `ConversationReference`는 `1 Conversation = 1 Agent` 제약으로 도메인 전환 시 문맥이 단절됨).
 3. **Session 종료 후 사용자 역할·선호 KPI 초기화 (Lack of Long-Term Memory)**:
    - 사용자가 새로운 채팅 Session(`+ New Session`)을 열 때마다 본인의 담당 부서, 직무 역할, 중점 관리 지표(KPI), 그리고 이전 Session에서 도출했던 핵심 Insight를 처음부터 다시 설명해야 합니다.
 
-본 Hands-on Lab에서는 위 3가지 문제를 해결하는 **Enterprise 표준 Reference Architecture**를 사용자의 GCP Project에 직접 구축하고 실습합니다:
+본 Hands-on Lab에서는 위 3가지 문제를 해결하는 **Multi-Agent Architecture Pattern**을 사용자의 GCP Project에 직접 구축하고 실습합니다:
 
 ```mermaid
 flowchart TB
@@ -254,15 +256,15 @@ Browser에서 **[http://127.0.0.1:8000/dev-ui/](http://127.0.0.1:8000/dev-ui/)**
 
 ---
 
-## Task 5. ADK 표준 `Session Object` + `Memory Object` (Long-Term Memory) 실습 (15분)
+## Task 5. ADK `Session Object` + `Memory Object` (Long-Term Memory) 실습 (15분)
 
-### 왜 ADK 표준 `Session Object` + `Memory Object` Architecture가 필요한가요?
-일반적인 Agent는 대화가 길어지거나 새 Session(`+ New Session`)을 열면 이전 Context를 모두 잃어버립니다. 본 Agent는 ADK의 **4단계 `Session.state` Scope**와 **`MemoryService` + Local 영속 Backup(`.adk/long_term_memory_bank.json`)**을 결합하여 다음을 보장합니다:
+### 왜 ADK `Session Object` + `Memory Object` Architecture Pattern이 필요한가요?
+일반적인 단발성 호출 Agent는 대화가 길어지거나 새 Session(`+ New Session`)을 열면 이전 Context를 모두 잃어버립니다. 본 Agent는 ADK의 **4단계 `Session.state` Scope**와 **`MemoryService` + Local 영속 Backup(`.adk/long_term_memory_bank.json`)**을 결합하여 다음을 보장합니다:
 
 | 구분 | Scope / Component | 보존 범위 (Lifecycle) | 저장 Data 및 강화되는 기능 |
 | :--- | :--- | :--- | :--- |
-| **Session Object** | **`temp:*`** | 현재 Turn(Invocation)만 유지 | `temp:last_caa_sql`, `temp:last_caa_rows` — 방대한 조회 결과 Row가 다음 Turn Prompt를 오염시키지 않도록 Turn 종료 시 자동 소멸 |
-| | **`session` (무접두사)** | 현재 Session 내 모든 Turn 유지 | `domain_query_history`, `domain_ca_multiturn_messages` — 동일 Session 내 후속 질문 시 대명사("그 중에서")를 해석하고 CAA `:chat` API에 직전 3 Turn 대화를 자동 Chaining |
+| **Session Object** | **`temp:*`** | 현재 Turn(Invocation)만 유지 | `temp:last_caa_sql`, `temp:last_caa_rows` — 방대한 조회 결과 Row를 동일 Turn 내 후속 처리에 전달한 뒤 Turn 종료 시 자동 소멸시켜 영속 Session DB 오염 방지 (다음 Turn LLM Prompt 오염 방지는 Tool 반환값의 20행 요약 및 `THOUGHT`/`PROGRESS` 제거로 달성) |
+| | **`session` (무접두사)** | 현재 Session 내 모든 Turn 유지 | `domain_query_history`, `domain_ca_multiturn_messages[-6:]` — 동일 Domain 후속 질문 시 최근 3 Turn(6개 Message)을 CAA `:chat` API(`DataAgentContext`, 필요 권한: `roles/geminidataanalytics.dataAgentUser`)의 `messages` 배열에 자동 Chaining하고, 이종 Domain 간 전환 시에는 ADK Sub-Agent가 공유 `domain_query_history`를 참조해 완결형 질의(Standalone Query)로 재작성 |
 | | **`user:*`** | **동일 사용자의 모든 Session 간 영속 유지** | `user:profile`(직무/관심부서/채널), `user:preferred_kpis`, `user:pinned_insights` — 새 Session을 열어도 사용자의 담당 부서와 중점 KPI가 System Prompt에 자동 주입됨 |
 | | **`app:*`** | Application 전역 공유 | `app:total_caa_queries_executed` — 전체 누적 CAA Query 실행 횟수 집계 |
 | **Memory Object** | **`after_agent_callback`** | 영구 보존 (Session 간 + Server 재시작 후) | 매 Turn 종료 시 `await callback_context.add_session_to_memory()`를 호출하여 `Session` Object를 `MemoryService`에 Indexing하고 `.adk/long_term_memory_bank.json`에 저장 |
