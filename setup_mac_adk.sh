@@ -27,11 +27,22 @@ uv --version
 echo "============================================================"
 echo " [2/6] Creating Python 3.11+ Virtual Environment (.venv)..."
 echo "============================================================"
+# Unset any inherited VIRTUAL_ENV from parent shell or foreign OS rsync
+unset VIRTUAL_ENV || true
+
+# Recreate .venv if missing, broken symlink (e.g. synced from Linux Cloudtop to macOS), or mismatched path
+if [ -d ".venv" ]; then
+  if [ ! -x ".venv/bin/python3" ] || ! .venv/bin/python3 -c "import sys" >/dev/null 2>&1 || ! grep -Fq "$WORKSPACE_DIR/.venv" ".venv/bin/activate" 2>/dev/null; then
+    echo " -> Detected foreign or broken .venv (e.g. synced from another host). Recreating clean local .venv..."
+    rm -rf .venv
+  fi
+fi
+
 if [ ! -d ".venv" ]; then
   uv venv --python 3.11 .venv || uv venv .venv
 fi
-# shellcheck disable=SC1091
-source .venv/bin/activate
+export VIRTUAL_ENV="$WORKSPACE_DIR/.venv"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
 
 echo "============================================================"
 echo " [3/6] Installing google-adk, truststore & certifi..."
@@ -40,15 +51,15 @@ echo "============================================================"
 # Install truststore & certifi to fix macOS SSL: CERTIFICATE_VERIFY_FAILED (_ssl.c:1006)
 # Security Guardrail (CVE-2026-49468 / b/572522296): Do NOT install litellm (<1.84 vulnerable),
 # and proactively uninstall litellm if present in an existing .venv.
-uv pip install "google-adk>=2.7.1" "google-genai>=1.0.0" "mcp==1.29.1" "python-dotenv>=1.0.1" "truststore>=0.10.0" "certifi>=2024.8.30"
-uv pip uninstall litellm >/dev/null 2>&1 || true
+uv pip install --python "$VIRTUAL_ENV/bin/python3" "google-adk>=2.7.1" "google-genai>=1.0.0" "mcp==1.29.1" "python-dotenv>=1.0.1" "truststore>=0.10.0" "certifi>=2024.8.30"
+uv pip uninstall --python "$VIRTUAL_ENV/bin/python3" litellm >/dev/null 2>&1 || true
 
 echo "============================================================"
 echo " [4/6] Building Combined macOS Keychain + certifi CA Bundle..."
 echo "============================================================"
 mkdir -p "$WORKSPACE_DIR/.certs"
 CA_BUNDLE="$WORKSPACE_DIR/.certs/combined_ca_bundle.pem"
-python3 -c "import certifi, shutil; shutil.copyfile(certifi.where(), '$CA_BUNDLE')"
+"$VIRTUAL_ENV/bin/python3" -c "import certifi, shutil; shutil.copyfile(certifi.where(), '$CA_BUNDLE')"
 
 if [ -f "/etc/ssl/cert.pem" ]; then
   cat "/etc/ssl/cert.pem" >> "$CA_BUNDLE"
