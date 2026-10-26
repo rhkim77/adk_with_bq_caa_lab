@@ -54,9 +54,13 @@ echo "============================================================"
 # 2) Proactively uninstall litellm if present in .venv
 # 3) Purge any cached vulnerable litellm (<1.84) metadata in ~/.cache/uv or ~/Library/Caches/uv
 CONSTRAINT_FILE="$(mktemp)"
-echo "litellm>=1.84.0" > "$CONSTRAINT_FILE"
-uv pip install --python "$VIRTUAL_ENV/bin/python3" -c "$CONSTRAINT_FILE" \
-  "google-adk>=2.7.1" "google-genai>=1.0.0" "mcp==1.29.1" "python-dotenv>=1.0.1" "truststore>=0.10.0" "certifi>=2024.8.30"
+printf "litellm>=1.84.0\nmcp<2.0.0\n" > "$CONSTRAINT_FILE"
+if ! uv pip install --python "$VIRTUAL_ENV/bin/python3" -c "$CONSTRAINT_FILE" \
+  "google-adk>=1.0.0" "google-genai>=1.0.0" "python-dotenv>=1.0.1" "truststore>=0.10.0" "certifi>=2024.8.30"; then
+  echo " -> Retrying package installation against public PyPI (https://pypi.org/simple/)..."
+  uv pip install --python "$VIRTUAL_ENV/bin/python3" --default-index https://pypi.org/simple/ -c "$CONSTRAINT_FILE" \
+    "google-adk>=1.0.0" "google-genai>=1.0.0" "python-dotenv>=1.0.1" "truststore>=0.10.0" "certifi>=2024.8.30"
+fi
 rm -f "$CONSTRAINT_FILE"
 uv pip uninstall --python "$VIRTUAL_ENV/bin/python3" litellm >/dev/null 2>&1 || true
 

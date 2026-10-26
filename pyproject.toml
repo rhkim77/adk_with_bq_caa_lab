@@ -6,16 +6,17 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "certifi>=2024.8.30",
-    "google-adk>=2.7.1",
+    "google-adk>=1.0.0",
     "google-genai>=1.0.0",
-    "mcp==1.29.1",
     "python-dotenv>=1.0.1",
     "truststore>=0.10.0",
 ]
 
 [tool.uv]
-# Security Guardrail (CVE-2026-49468 / b/572522296):
-# Prevent uv from ever resolving or caching litellm < 1.84.0 even if pulled transitively.
+# Security & Compatibility Guardrails:
+# 1) CVE-2026-49468 (b/572522296): Prevent uv from ever resolving or caching litellm < 1.84.0
+# 2) Prevent mcp >= 2.0 breaking changes if mcp extra is installed
 constraint-dependencies = [
     "litellm>=1.84.0",
+    "mcp<2.0.0",
 ]
