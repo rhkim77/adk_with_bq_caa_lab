@@ -123,6 +123,18 @@ def check_task_4_and_5() -> bool:
     print(f"  ✅ PASS: 3 Domain Sub-Agents wired: {sub_names}")
     print(f"  ✅ PASS: Root Tools wired: {tool_names}")
     print(f"  ✅ PASS: Session/Memory Lifecycle Callbacks active: {has_callbacks}")
+
+    import importlib.metadata
+    try:
+      litellm_ver = importlib.metadata.version("litellm")
+      parts = [int(x) for x in litellm_ver.split(".")[:2] if x.isdigit()]
+      if len(parts) >= 2 and (parts[0], parts[1]) < (1, 84):
+        print(f"  ❌ FAIL: Vulnerable litellm=={litellm_ver} (<1.84.0, CVE-2026-49468) detected in environment!")
+        return False
+      print(f"  ✅ PASS: Security check (litellm=={litellm_ver} >= 1.84.0).")
+    except importlib.metadata.PackageNotFoundError:
+      print("  ✅ PASS: Security check (litellm not installed; native Vertex AI google-genai active).")
+
     return len(sub_names) == 3 and has_callbacks
   except Exception as exc:
     print(f"  ❌ FAIL: Error loading `bq_caa_3domain_multi_agent`: {exc}")

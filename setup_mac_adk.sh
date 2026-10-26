@@ -49,10 +49,22 @@ echo " [3/6] Installing google-adk, truststore & certifi..."
 echo "============================================================"
 # Pin mcp==1.29.1 (<2.0) to prevent ModuleNotFoundError: mcp.shared.session
 # Install truststore & certifi to fix macOS SSL: CERTIFICATE_VERIFY_FAILED (_ssl.c:1006)
-# Security Guardrail (CVE-2026-49468 / b/572522296): Do NOT install litellm (<1.84 vulnerable),
-# and proactively uninstall litellm if present in an existing .venv.
-uv pip install --python "$VIRTUAL_ENV/bin/python3" "google-adk>=2.7.1" "google-genai>=1.0.0" "mcp==1.29.1" "python-dotenv>=1.0.1" "truststore>=0.10.0" "certifi>=2024.8.30"
+# Security Guardrail (CVE-2026-49468 / b/572522296):
+# 1) Pass explicit constraint `litellm>=1.84.0` to `uv pip install`
+# 2) Proactively uninstall litellm if present in .venv
+# 3) Purge any cached vulnerable litellm (<1.84) metadata in ~/.cache/uv or ~/Library/Caches/uv
+CONSTRAINT_FILE="$(mktemp)"
+echo "litellm>=1.84.0" > "$CONSTRAINT_FILE"
+uv pip install --python "$VIRTUAL_ENV/bin/python3" -c "$CONSTRAINT_FILE" \
+  "google-adk>=2.7.1" "google-genai>=1.0.0" "mcp==1.29.1" "python-dotenv>=1.0.1" "truststore>=0.10.0" "certifi>=2024.8.30"
+rm -f "$CONSTRAINT_FILE"
 uv pip uninstall --python "$VIRTUAL_ENV/bin/python3" litellm >/dev/null 2>&1 || true
+
+for CACHE_DIR in "$HOME/.cache/uv" "$HOME/Library/Caches/uv" "$HOME/Library/Caches/pip"; do
+  if [ -d "$CACHE_DIR" ]; then
+    find "$CACHE_DIR" \( -name "litellm-1.[0-7]*.dist-info" -o -name "litellm-1.8[0-3]*.dist-info" -o -name "litellm-1.[0-7]*.whl" -o -name "litellm-1.8[0-3]*.whl" \) -exec rm -rf {} + 2>/dev/null || true
+  fi
+done
 
 echo "============================================================"
 echo " [4/6] Building Combined macOS Keychain + certifi CA Bundle..."
