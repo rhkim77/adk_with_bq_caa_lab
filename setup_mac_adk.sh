@@ -38,7 +38,10 @@ echo " [3/6] Installing google-adk, truststore & certifi..."
 echo "============================================================"
 # Pin mcp==1.29.1 (<2.0) to prevent ModuleNotFoundError: mcp.shared.session
 # Install truststore & certifi to fix macOS SSL: CERTIFICATE_VERIFY_FAILED (_ssl.c:1006)
+# Security Guardrail (CVE-2026-49468 / b/572522296): Do NOT install litellm (<1.84 vulnerable),
+# and proactively uninstall litellm if present in an existing .venv.
 uv pip install "google-adk>=2.7.1" "google-genai>=1.0.0" "mcp==1.29.1" "python-dotenv>=1.0.1" "truststore>=0.10.0" "certifi>=2024.8.30"
+uv pip uninstall litellm >/dev/null 2>&1 || true
 
 echo "============================================================"
 echo " [4/6] Building Combined macOS Keychain + certifi CA Bundle..."

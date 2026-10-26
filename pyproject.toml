@@ -12,3 +12,10 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "truststore>=0.10.0",
 ]
+
+[tool.uv]
+# Security Guardrail (CVE-2026-49468 / b/572522296):
+# Prevent uv from ever resolving or caching litellm < 1.84.0 even if pulled transitively.
+constraint-dependencies = [
+    "litellm>=1.84.0",
+]
